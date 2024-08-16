@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Old Navy App</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Old Navy App</h1>
+        <div class="form-group">
+            <label for="use-proxies">Usar Proxies:</label>
+            <input type="checkbox" id="use-proxies">
+        </div>
+        <div class="form-group">
+            <label for="retry-same-email">Reintentar el mismo email con otro proxy:</label>
+            <input type="checkbox" id="retry-same-email">
+        </div>
+        <div class="form-group">
+            <label for="headless-mode">Modo Headless:</label>
+            <input type="checkbox" id="headless-mode">
+        </div>
+        <div class="form-group">
+            <label for="num-workers">Número de hilos (workers):</label>
+            <input type="number" id="num-workers" value="1" min="1" max="10">
+        </div>
+        <div>
+            <label for="humanized-mode">Modo Humanizado:</label>
+            <input type="checkbox" id="humanized-mode">
+        </div>
+
+        <div class="buttons">
+            <button id="start-button">Iniciar</button>
+            <button id="stop-button">Detener</button>
+            <button id="pause-button">Pausar</button>
+        </div>
+
+        <div class="stats">
+            <h2>Estadísticas</h2>
+            <p>Hits: <span id="hits">0</span></p>
+            <p>Bans: <span id="bans">0</span></p>
+            <p>Invalids: <span id="invalids">0</span></p>
+        </div>
+
+        <div>
+            <h2>Logs</h2>
+            <div id="log-container">
+                <!-- Aquí se mostrarán los logs -->
+            </div>
+        </div>
+    </div>
+    <script src="renderer.js"></script>
+</body>
+</html>

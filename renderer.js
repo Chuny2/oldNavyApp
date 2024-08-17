@@ -24,10 +24,12 @@ document.getElementById('start-button').addEventListener('click', () => {
         ipcRenderer.send('resume');
         isPaused = false;
         document.getElementById('start-button').textContent = 'Iniciar';
+        document.getElementById('start-button').disabled = false;
     } else {
         const useProxies = document.getElementById('use-proxies').checked;
         const useHeadless = document.getElementById('headless-mode').checked;
         const retrySameEmailWithNewProxy = document.getElementById('retry-same-email').checked;
+        const retrySameEmailNoProxy = document.getElementById('retry-same-email-no-proxy').checked;
         const humanizedMode = document.getElementById('humanized-mode').checked;
         const numWorkers = parseInt(document.getElementById('num-workers').value, 10);  // Capturar el número de hilos (workers)
         const credentialsPath = document.getElementById('credentials-path').textContent;
@@ -35,7 +37,10 @@ document.getElementById('start-button').addEventListener('click', () => {
 
         console.log('Número de workers es:', numWorkers); // Log para verificar que el valor se captura correctamente
 
-        ipcRenderer.send('start', { useProxies, useHeadless, retrySameEmailWithNewProxy, numWorkers , humanizedMode ,credentialsPath, proxiesPath });
+        ipcRenderer.send('start', { useProxies, useHeadless, retrySameEmailWithNewProxy, retrySameEmailNoProxy, numWorkers, humanizedMode, credentialsPath, proxiesPath });
+
+        // Deshabilitar el botón de iniciar mientras está en ejecución
+        document.getElementById('start-button').disabled = true;
     }
 });
 
@@ -44,6 +49,7 @@ document.getElementById('stop-button').addEventListener('click', () => {
     ipcRenderer.send('stop');
     isPaused = false; // Reiniciar el estado de pausa
     document.getElementById('start-button').textContent = 'Iniciar'; // Restaurar el texto original
+    document.getElementById('start-button').disabled = false; // Habilitar el botón de iniciar
 });
 
 // Manejador para el botón de pausar
@@ -51,6 +57,7 @@ document.getElementById('pause-button').addEventListener('click', () => {
     ipcRenderer.send('pause');
     isPaused = true;
     document.getElementById('start-button').textContent = 'Reanudar';
+    document.getElementById('start-button').disabled = false; // Habilitar el botón de iniciar para reanudar
 });
 
 // Actualización de las estadísticas de hits, bans e invalids en la interfaz
@@ -87,3 +94,26 @@ ipcRenderer.on('selected-proxies', (event, filePath) => {
         alert('No se seleccionó ningún archivo de proxies.');
     }
 });
+
+// Manejo de la lógica de habilitación/deshabilitación de checkboxes
+function updateCheckboxStates() {
+    const useProxiesCheckbox = document.getElementById('use-proxies');
+    const retrySameEmailCheckbox = document.getElementById('retry-same-email');
+    const retrySameEmailNoProxyCheckbox = document.getElementById('retry-same-email-no-proxy');
+
+    if (useProxiesCheckbox.checked) {
+        retrySameEmailCheckbox.disabled = false;
+        retrySameEmailNoProxyCheckbox.disabled = true;
+        retrySameEmailNoProxyCheckbox.checked = false;
+    } else {
+        retrySameEmailCheckbox.disabled = true;
+        retrySameEmailCheckbox.checked = false;
+        retrySameEmailNoProxyCheckbox.disabled = false;
+    }
+}
+
+document.getElementById('use-proxies').addEventListener('change', updateCheckboxStates);
+document.getElementById('retry-same-email').addEventListener('change', updateCheckboxStates);
+document.getElementById('retry-same-email-no-proxy').addEventListener('change', updateCheckboxStates);
+
+updateCheckboxStates();

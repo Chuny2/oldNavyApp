@@ -6,6 +6,45 @@
     <title>Old Navy App</title>
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Estilo para el icono de información */
+        .info-icon {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            background-color: red;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            font-size: 12px;
+            line-height: 15px;
+            margin-left: 5px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        /* Estilo para el mensaje emergente */
+        .info-icon:hover::after {
+            content: "Formato: host:puerto:usuario:password";
+            position: absolute;
+            background-color: black;
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+            top: 20px;
+            left: 0;
+            white-space: nowrap;
+            z-index: 1;
+            font-size: 12px;
+        }
+
+        /* Estilo para los botones deshabilitados */
+        .disabled-button {
+            background-color: #d3d3d3 !important;
+            color: #666 !important;
+            cursor: not-allowed !important;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -13,20 +52,26 @@
         <div class="form-group">
             <label for="use-proxies">Usar Proxies:</label>
             <input type="checkbox" id="use-proxies">
+            <span class="info-icon">i</span> <!-- Icono de información -->
         </div>
-        <div class="form-group">
-            <label for="retry-same-email">Reintentar el mismo email con otro proxy:</label>
-            <input type="checkbox" id="retry-same-email">
+        <div class="form-group" id="retry-with-proxy-group">
+            <label for="retry-same-email">Reintentar en caso de error:</label>
+            <input type="checkbox" id="retry-same-email" disabled>
         </div>
+        <div class="form-group" id="retry-no-proxy-group">
+            <label for="retry-same-email-no-proxy">Reintentar en caso de error:</label>
+            <input type="checkbox" id="retry-same-email-no-proxy">
+        </div>
+        
         <div class="form-group">
-            <label for="headless-mode">Modo Headless:</label>
+            <label for="headless-mode">Modo sin navegador:</label>
             <input type="checkbox" id="headless-mode">
         </div>
         <div class="form-group">
             <label for="num-workers">Número de hilos (workers):</label>
             <input type="number" id="num-workers" value="1" min="1" max="10">
         </div>
-        <div>
+        <div class="form-group">
             <label for="humanized-mode">Modo Humanizado:</label>
             <input type="checkbox" id="humanized-mode">
         </div>
@@ -34,7 +79,7 @@
         <div class="buttons">
             <button id="start-button">Iniciar</button>
             <button id="stop-button">Detener</button>
-            <button id="pause-button">Pausar</button>
+            <button id="pause-button" class="disabled-button" disabled>Pausar</button>
         </div>
         <div>
             <label>Archivo de Credenciales: </label>
@@ -61,6 +106,73 @@
             </div>
         </div>
     </div>
+
+    <script>
+        const useProxiesCheckbox = document.getElementById('use-proxies');
+        const retrySameEmailCheckbox = document.getElementById('retry-same-email');
+        const retrySameEmailNoProxyCheckbox = document.getElementById('retry-same-email-no-proxy');
+        const retryWithProxyGroup = document.getElementById('retry-with-proxy-group');
+        const retryNoProxyGroup = document.getElementById('retry-no-proxy-group');
+        const startButton = document.getElementById('start-button');
+        const pauseButton = document.getElementById('pause-button');
+
+        function updateCheckboxStates() {
+            if (useProxiesCheckbox.checked) {
+                retryWithProxyGroup.style.display = 'block';
+                retryNoProxyGroup.style.display = 'none';
+                retrySameEmailCheckbox.disabled = false;
+            } else {
+                retryWithProxyGroup.style.display = 'none';
+                retryNoProxyGroup.style.display = 'block';
+                retrySameEmailNoProxyCheckbox.disabled = false;
+            }
+
+            if (retrySameEmailCheckbox.checked) {
+                useProxiesCheckbox.disabled = true;
+            } else {
+                useProxiesCheckbox.disabled = false;
+            }
+
+            if (retrySameEmailNoProxyCheckbox.checked) {
+                useProxiesCheckbox.disabled = true;
+                retrySameEmailCheckbox.disabled = true;
+            } else {
+                useProxiesCheckbox.disabled = retrySameEmailCheckbox.checked;
+            }
+        }
+
+        useProxiesCheckbox.addEventListener('change', updateCheckboxStates);
+        retrySameEmailCheckbox.addEventListener('change', updateCheckboxStates);
+        retrySameEmailNoProxyCheckbox.addEventListener('change', updateCheckboxStates);
+
+        updateCheckboxStates();
+
+        // Deshabilitar el botón de iniciar al comenzar el proceso
+        startButton.addEventListener('click', () => {
+            startButton.disabled = true;
+            startButton.classList.add('disabled-button');
+
+            pauseButton.disabled = false;
+            pauseButton.classList.remove('disabled-button');
+        });
+
+        // Rehabilitar el botón de iniciar al detener el proceso
+        document.getElementById('stop-button').addEventListener('click', () => {
+            startButton.disabled = false;
+            startButton.classList.remove('disabled-button');
+
+            pauseButton.disabled = true;
+            pauseButton.classList.add('disabled-button');
+        });
+
+        // Rehabilitar el botón de iniciar al pausar el proceso
+        pauseButton.addEventListener('click', () => {
+            startButton.disabled = false;
+            startButton.classList.remove('disabled-button');
+        });
+
+    </script>
+
     <script src="renderer.js"></script>
 </body>
 </html>

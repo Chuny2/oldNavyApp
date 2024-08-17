@@ -12,7 +12,7 @@
   "description": "",
   "devDependencies": {
     "electron": "^31.4.0",
-    "electron-builder": "^23.6.0"
+    "electron-builder": "^24.13.3"
   },
   "build": {
     "appId": "com.yourdomain.oldnavyapp",
@@ -29,5 +29,8 @@
         "portable"
       ]
     }
+  },
+  "dependencies": {
+    "random-useragent": "^0.5.0"
   }
 }

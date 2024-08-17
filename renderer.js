@@ -30,10 +30,12 @@ document.getElementById('start-button').addEventListener('click', () => {
         const retrySameEmailWithNewProxy = document.getElementById('retry-same-email').checked;
         const humanizedMode = document.getElementById('humanized-mode').checked;
         const numWorkers = parseInt(document.getElementById('num-workers').value, 10);  // Capturar el número de hilos (workers)
+        const credentialsPath = document.getElementById('credentials-path').textContent;
+        const proxiesPath = useProxies ? document.getElementById('proxies-path').textContent : null;
 
         console.log('Número de workers es:', numWorkers); // Log para verificar que el valor se captura correctamente
 
-        ipcRenderer.send('start', { useProxies, useHeadless, retrySameEmailWithNewProxy, numWorkers , humanizedMode });
+        ipcRenderer.send('start', { useProxies, useHeadless, retrySameEmailWithNewProxy, numWorkers , humanizedMode ,credentialsPath, proxiesPath });
     }
 });
 
@@ -56,4 +58,32 @@ ipcRenderer.on('update-stats', (event, { hits, bans, invalids }) => {
     document.getElementById('hits').innerText = hits;
     document.getElementById('bans').innerText = bans;
     document.getElementById('invalids').innerText = invalids;
+});
+
+// Manejadores para los botones de selección de archivos
+document.getElementById('select-credentials').addEventListener('click', () => {
+    ipcRenderer.send('select-credentials');
+});
+
+// Manejador para el evento de selección de proxies
+document.getElementById('select-proxies').addEventListener('click', () => {
+    ipcRenderer.send('select-proxies');
+});
+
+// Actualización de la interfaz con la ruta del archivo seleccionado
+ipcRenderer.on('selected-credentials', (event, filePath) => {
+    if (filePath) {
+        document.getElementById('credentials-path').textContent = filePath;
+    } else {
+        alert('No se seleccionó ningún archivo de credenciales.');
+    }
+});
+
+// Actualización de la interfaz con la ruta del archivo seleccionado
+ipcRenderer.on('selected-proxies', (event, filePath) => {
+    if (filePath) {
+        document.getElementById('proxies-path').textContent = filePath;
+    } else {
+        alert('No se seleccionó ningún archivo de proxies.');
+    }
 });

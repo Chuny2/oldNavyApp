@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { Worker } = require('worker_threads');
 const path = require('path');
 const fs = require('fs');
@@ -114,7 +114,7 @@ function startWorkers({ useProxies, retrySameEmailWithNewProxy, useHeadless, num
 
 // Función para detener los workers
 function stopWorkers() {
-    workers.forEach(worker => worker.terminate());
+    workers.forEach(worker => worker.postMessage('stop'));
     workers = [];
     isRunning = false;
 }
@@ -138,10 +138,10 @@ function updateStats() {
 
 
 // Eventos de IPC para manejar la interfaz
-ipcMain.on('start', (event, { useProxies, retrySameEmailWithNewProxy, useHeadless, numWorkers , humanizedMode }) => {
+ipcMain.on('start', (event, { useProxies, retrySameEmailWithNewProxy, useHeadless, numWorkers , humanizedMode , credentialsPath, proxiesPath}) => {
     if (!isRunning) {
         console.log('Número de workers es:', numWorkers); // Log para verificar que se recibe correctamente
-        startWorkers({ useProxies, retrySameEmailWithNewProxy, useHeadless, numWorkers , humanizedMode });
+        startWorkers({ useProxies, retrySameEmailWithNewProxy, useHeadless, numWorkers , humanizedMode ,credentialsPath, proxiesPath });
     }
 });
 
@@ -163,6 +163,41 @@ ipcMain.on('resume', () => {
         resumeWorkers();
     }
 });
+
+// Seleccionar credenciales
+ipcMain.on('select-credentials', (event) => {
+    dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [{ name: 'Text Files', extensions: ['txt'] }]
+    }).then(result => {
+        if (!result.canceled && result.filePaths.length > 0) {
+            event.reply('selected-credentials', result.filePaths[0]);
+        } else {
+            event.reply('selected-credentials', null);
+        }
+    }).catch(err => {
+        console.error('Error al seleccionar archivo de credenciales:', err);
+        event.reply('selected-credentials', null);
+    });
+});
+
+// Seleccionar proxies
+ipcMain.on('select-proxies', (event) => {
+    dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [{ name: 'Text Files', extensions: ['txt'] }]
+    }).then(result => {
+        if (!result.canceled && result.filePaths.length > 0) {
+            event.reply('selected-proxies', result.filePaths[0]);
+        } else {
+            event.reply('selected-proxies', null);
+        }
+    }).catch(err => {
+        console.error('Error al seleccionar archivo de proxies:', err);
+        event.reply('selected-proxies', null);
+    });
+});
+
 
 // Iniciar la aplicación de Electron
 app.whenReady().then(() => {

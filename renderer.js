@@ -1,6 +1,7 @@
 const { ipcRenderer } = require('electron');
 
 let isPaused = false;  // Variable para rastrear si la ejecución está pausada
+let isRunning = false; // Variable para rastrear si la ejecución está en marcha
 
 // Función para agregar mensajes al log en la interfaz
 function addToLog(message) {
@@ -13,107 +14,116 @@ function addToLog(message) {
     logDiv.scrollTop = logDiv.scrollHeight;
 }
 
-// Escuchar los mensajes de la consola desde el main process
-ipcRenderer.on('log-message', (event, message) => {
-    addToLog(message);
-});
+// Función para actualizar el estado de los botones
+function updateButtonStates() {
+    const startButton = getElement('start-button');
+    const pauseButton = getElement('pause-button');
+    const stopButton = getElement('stop-button');
+
+    startButton.textContent = isPaused ? 'Resumir' : 'Iniciar';
+    toggleButtonState(startButton, !isRunning || isPaused);
+    toggleButtonState(pauseButton, isRunning && !isPaused);
+    toggleButtonState(stopButton, isRunning);
+}
+
+// Función para alternar el estado de los botones
+function toggleButtonState(button, isEnabled) {
+    button.disabled = !isEnabled;
+    button.classList.toggle('disabled-button', !isEnabled);
+}
+
+// Función para obtener elementos del DOM
+function getElement(id) {
+    return document.getElementById(id);
+}
 
 // Manejador para el botón de iniciar/reanudar
-document.getElementById('start-button').addEventListener('click', () => {
+function handleStartButton() {
     if (isPaused) {
         ipcRenderer.send('resume');
         isPaused = false;
-        document.getElementById('start-button').textContent = 'Iniciar';
-        document.getElementById('start-button').disabled = false;
     } else {
-        const useProxies = document.getElementById('use-proxies').checked;
-        const useHeadless = document.getElementById('headless-mode').checked;
-        const retrySameEmailWithNewProxy = document.getElementById('retry-same-email').checked;
-        const retrySameEmailNoProxy = document.getElementById('retry-same-email-no-proxy').checked;
-        const humanizedMode = document.getElementById('humanized-mode').checked;
-        const numWorkers = parseInt(document.getElementById('num-workers').value, 10);  // Capturar el número de hilos (workers)
-        const credentialsPath = document.getElementById('credentials-path').textContent;
-        const proxiesPath = useProxies ? document.getElementById('proxies-path').textContent : null;
+        const useProxies = getElement('use-proxies').checked;
+        const useHeadless = getElement('headless-mode').checked;
+        const retryOnFail = getElement('retry-on-fail').checked;
+        const humanizedMode = getElement('humanized-mode').checked;
+        const numWorkers = parseInt(getElement('num-workers').value, 10);
+        const credentialsPath = getElement('credentials-path').textContent;
+        const proxiesPath = useProxies ? getElement('proxies-path').textContent : null;
 
-        console.log('Número de workers es:', numWorkers); // Log para verificar que el valor se captura correctamente
+        if (!credentialsPath) {
+            alert('Por favor, selecciona un archivo de credenciales.');
+            return;
+        }
+        if (useProxies && !proxiesPath) {
+            alert('Por favor, selecciona un archivo de proxies.');
+            return;
+        }
 
-        ipcRenderer.send('start', { useProxies, useHeadless, retrySameEmailWithNewProxy, retrySameEmailNoProxy, numWorkers, humanizedMode, credentialsPath, proxiesPath });
-
-        // Deshabilitar el botón de iniciar mientras está en ejecución
-        document.getElementById('start-button').disabled = true;
+        ipcRenderer.send('start', { useProxies, useHeadless, retryOnFail, numWorkers, humanizedMode, credentialsPath, proxiesPath });
+        isRunning = true;
     }
-});
-
-// Manejador para el botón de detener
-document.getElementById('stop-button').addEventListener('click', () => {
-    ipcRenderer.send('stop');
-    isPaused = false; // Reiniciar el estado de pausa
-    document.getElementById('start-button').textContent = 'Iniciar'; // Restaurar el texto original
-    document.getElementById('start-button').disabled = false; // Habilitar el botón de iniciar
-});
-
-// Manejador para el botón de pausar
-document.getElementById('pause-button').addEventListener('click', () => {
-    ipcRenderer.send('pause');
-    isPaused = true;
-    document.getElementById('start-button').textContent = 'Reanudar';
-    document.getElementById('start-button').disabled = false; // Habilitar el botón de iniciar para reanudar
-});
-
-// Actualización de las estadísticas de hits, bans e invalids en la interfaz
-ipcRenderer.on('update-stats', (event, { hits, bans, invalids }) => {
-    document.getElementById('hits').innerText = hits;
-    document.getElementById('bans').innerText = bans;
-    document.getElementById('invalids').innerText = invalids;
-});
-
-// Manejadores para los botones de selección de archivos
-document.getElementById('select-credentials').addEventListener('click', () => {
-    ipcRenderer.send('select-credentials');
-});
-
-// Manejador para el evento de selección de proxies
-document.getElementById('select-proxies').addEventListener('click', () => {
-    ipcRenderer.send('select-proxies');
-});
-
-// Actualización de la interfaz con la ruta del archivo seleccionado
-ipcRenderer.on('selected-credentials', (event, filePath) => {
-    if (filePath) {
-        document.getElementById('credentials-path').textContent = filePath;
-    } else {
-        alert('No se seleccionó ningún archivo de credenciales.');
-    }
-});
-
-// Actualización de la interfaz con la ruta del archivo seleccionado
-ipcRenderer.on('selected-proxies', (event, filePath) => {
-    if (filePath) {
-        document.getElementById('proxies-path').textContent = filePath;
-    } else {
-        alert('No se seleccionó ningún archivo de proxies.');
-    }
-});
-
-// Manejo de la lógica de habilitación/deshabilitación de checkboxes
-function updateCheckboxStates() {
-    const useProxiesCheckbox = document.getElementById('use-proxies');
-    const retrySameEmailCheckbox = document.getElementById('retry-same-email');
-    const retrySameEmailNoProxyCheckbox = document.getElementById('retry-same-email-no-proxy');
-
-    if (useProxiesCheckbox.checked) {
-        retrySameEmailCheckbox.disabled = false;
-        retrySameEmailNoProxyCheckbox.disabled = true;
-        retrySameEmailNoProxyCheckbox.checked = false;
-    } else {
-        retrySameEmailCheckbox.disabled = true;
-        retrySameEmailCheckbox.checked = false;
-        retrySameEmailNoProxyCheckbox.disabled = false;
-    }
+    updateButtonStates();
 }
 
-document.getElementById('use-proxies').addEventListener('change', updateCheckboxStates);
-document.getElementById('retry-same-email').addEventListener('change', updateCheckboxStates);
-document.getElementById('retry-same-email-no-proxy').addEventListener('change', updateCheckboxStates);
+// Manejador para el botón de detener
+function handleStopButton() {
+    ipcRenderer.send('stop');
+    isPaused = false;
+    isRunning = false;
+    updateButtonStates();
+}
 
-updateCheckboxStates();
+// Manejador para el botón de pausar
+function handlePauseButton() {
+    ipcRenderer.send('pause');
+    isPaused = true;
+    updateButtonStates();
+}
+
+// Manejador para la actualización de estadísticas
+function updateStats({ hits, bans, invalids }) {
+    getElement('hits').innerText = hits;
+    getElement('bans').innerText = bans;
+    getElement('invalids').innerText = invalids;
+}
+
+// Manejadores para los botones de selección de archivos
+function handleSelectCredentials() {
+    ipcRenderer.send('select-credentials');
+}
+
+function handleSelectProxies() {
+    ipcRenderer.send('select-proxies');
+}
+
+// Manejadores para actualizar la interfaz con la ruta del archivo seleccionado
+function handleSelectedCredentials(event, filePath) {
+    getElement('credentials-path').textContent = filePath || 'No se seleccionó ningún archivo de credenciales.';
+}
+
+function handleSelectedProxies(event, filePath) {
+    getElement('proxies-path').textContent = filePath || 'No se seleccionó ningún archivo de proxies.';
+}
+
+// Inicializar la aplicación
+function initializeApp() {
+    // Vincular eventos de los botones
+    getElement('start-button').addEventListener('click', handleStartButton);
+    getElement('stop-button').addEventListener('click', handleStopButton);
+    getElement('pause-button').addEventListener('click', handlePauseButton);
+    getElement('select-credentials').addEventListener('click', handleSelectCredentials);
+    getElement('select-proxies').addEventListener('click', handleSelectProxies);
+
+    // Escuchar mensajes del proceso principal
+    ipcRenderer.on('log-message', (event, message) => addToLog(message));
+    ipcRenderer.on('update-stats', (event, stats) => updateStats(stats));
+    ipcRenderer.on('selected-credentials', handleSelectedCredentials);
+    ipcRenderer.on('selected-proxies', handleSelectedProxies);
+
+    // Inicializar el estado de los botones
+    updateButtonStates();
+}
+
+// Ejecutar la inicialización cuando el DOM esté completamente cargado
+document.addEventListener('DOMContentLoaded', initializeApp);

